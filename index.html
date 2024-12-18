@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Import Cesium JS and CSS -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <!-- Import Open Sans from Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+      font-family: 'Open Sans', Arial, sans-serif;
+    }
+
+    #loadingScreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #0E7199;
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 1.5rem;
+      z-index: 100;
+    }
+
+    #sideBar {
+      width: 25%;
+      height: 100%;
+      position: absolute;
+      left: 0;
+      top: 0;
+      background: #0E7199;
+      border-right: 1px solid #ccc;
+      overflow-y: auto;
+      z-index: 1;
+      text-align: center;
+    }
+
+    #logo {
+      max-width: 80%;
+      height: auto;
+      margin: 10px auto;
+    }
+
+    #name {
+      margin-top: 20px;
+      color: white;
+    }
+
+    #cesiumContainer {
+      position: absolute;
+      top: 0;
+      left: 25%;
+      width: 75%;
+      height: 100%;
+      z-index: 0;
+    }
+
+    #hoverTooltip {
+      position: absolute;
+      padding: 10px;
+      background: red;
+      color: white;
+      border-radius: 5px;
+      font-size: 12px;
+      pointer-events: none;
+      display: none;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div id="loadingScreen">Loading...</div>
+
+  <!-- Sidebar and Cesium Container -->
+  <div id="sideBar">
+    <img id="logo" src="./assets/sanctuaryEarth.png" alt="Sanctuary Earth">
+    <h1 id="name">Click on a region</h1>
+    <p id="area"></p>
+  </div>
+  <div id="cesiumContainer"></div>
+  <div id="hoverTooltip"></div>
+
+
+  <script type="module">
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI2Mzc2Njg5OC1kZTNhLTQyODYtYjQxZi00YjA4Y2M1OWNmZmIiLCJpZCI6MjYwNzE1LCJpYXQiOjE3MzM1NDA5MDh9.fYcq88HoubZucYmM1T3GrCw4yqc290yby_cyLG2bFog'; // Replace with your access token.
+  
+    const loadingScreen = document.getElementById('loadingScreen');
+  
+    // Start loading Cesium and hide the loading screen after 3 seconds.
+    setTimeout(() => {
+      loadingScreen.style.display = 'none'; // Hide the loading screen.
+    }, 3000); // Keep loading screen for 3 seconds.
+  
+    // Initialize Cesium Viewer
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      terrain: Cesium.Terrain.fromWorldTerrain(),
+      baseLayerPicker: false,
+      fullscreenButton: false,
+      vrButton: false,
+      navigationInstructionsInitiallyVisible: false,
+      navigationHelpButton: false,
+      timeline: false,
+      selectionIndicator: false,
+      sceneModePicker: false,
+      infoBox: false,
+      homeButton: false,
+      animation: false
+    });
+  
+    const controller = viewer.scene.screenSpaceCameraController;
+    controller.enableTranslate = false;
+    controller.enableTilt = false;
+    controller.minimumZoomDistance = 500000;
+    controller.maximumZoomDistance = 20000000;
+    controller.enableRotate = true;
+  
+    // Map to store OBJECTID to color mapping
+    const objectIdToColor = new Map();
+  
+    // Generate a consistent color for each OBJECTID
+    function getColorForObjectId(objectId) {
+      if (!objectIdToColor.has(objectId)) {
+        const color = Cesium.Color.fromRandom({ alpha: 1.0 });
+        objectIdToColor.set(objectId, color);
+      }
+      return objectIdToColor.get(objectId);
+    }
+  
+    const dataSourcePromise = Cesium.GeoJsonDataSource.load('./data/basins2.geojson', {
+      stroke: Cesium.Color.HOTPINK,
+      strokeWidth: 3
+    });
+  
+    dataSourcePromise.then((dataSource) => {
+      viewer.dataSources.add(dataSource);
+  
+      // Assign colors based on OBJECTID
+      dataSource.entities.values.forEach((entity) => {
+        if (entity.polygon && entity.properties && entity.properties.OBJECTID) {
+          const objectId = entity.properties.OBJECTID.getValue();
+          entity.polygon.material = getColorForObjectId(objectId);
+        }
+      });
+    });
+  
+    viewer.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+  
+    const nameElement = document.getElementById('name');
+    const areaElement = document.getElementById('area');
+    const tooltip = document.getElementById('hoverTooltip');
+    const sidebarWidth = document.getElementById('sideBar').offsetWidth; // Get sidebar width
+  
+    // Hover tooltip functionality
+    const hoverHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    hoverHandler.setInputAction((movement) => {
+      const pickedObject = viewer.scene.pick(movement.endPosition);
+  
+      if (Cesium.defined(pickedObject) && Cesium.defined(pickedObject.id)) {
+        const entity = pickedObject.id;
+        const name = entity.properties?.Name?.getValue() || 'Unknown';
+  
+        // Update tooltip content
+        tooltip.textContent = name;
+  
+        // Position tooltip near mouse cursor, accounting for sidebar offset
+        const offsetX = 15; // Horizontal offset
+        const offsetY = 15; // Vertical offset
+        tooltip.style.left = `${movement.endPosition.x + offsetX + sidebarWidth}px`;
+        tooltip.style.top = `${movement.endPosition.y + offsetY}px`;
+        tooltip.style.display = 'block';
+      } else {
+        tooltip.style.display = 'none'; // Hide tooltip when not hovering
+      }
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+  
+    // Add click interaction with zoom functionality
+    const clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    clickHandler.setInputAction((click) => {
+      const pickedObject = viewer.scene.pick(click.position);
+  
+      if (Cesium.defined(pickedObject) && Cesium.defined(pickedObject.id)) {
+        const entity = pickedObject.id;
+        const name = entity.properties?.Name?.getValue() || 'Unknown';
+        const area = entity.properties?.Area?.getValue() || 0;
+        const formattedArea = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(area);
+  
+        nameElement.textContent = `Name: ${name}`;
+        areaElement.textContent = `Area: ${formattedArea} sq km`;
+  
+        if (entity.polygon) {
+          const boundingSphere = Cesium.BoundingSphere.fromBoundingSpheres(
+            [Cesium.BoundingSphere.fromPoints(entity.polygon.hierarchy.getValue(Cesium.JulianDate.now()).positions)]
+          );
+  
+          // Fly to the bounding sphere
+          viewer.camera.flyToBoundingSphere(boundingSphere, {
+            offset: new Cesium.HeadingPitchRange(
+              viewer.camera.heading,
+              viewer.camera.pitch,
+              boundingSphere.radius * 3 // Adjust for zoom level
+            ),
+            duration: 1.5 // Smooth zoom duration
+          });
+        }
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  </script>
+  
+
+
+  
+</body>
+</html>
